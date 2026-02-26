@@ -1,0 +1,7 @@
+{
+  "bodyshop": {
+    "version": "1.1.0",
+    "notes": "New: Tech allocation pipeline board matching shop workflow. Drag-and-drop vehicle assignment.",
+    "file": "bodyshop/BodyShopCRM.html"
+  }
+}
