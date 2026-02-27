@@ -1847,7 +1847,7 @@ const PAINT_TYPES = [
   'Single Stage','Basecoat/Clearcoat','Tri-Coat/Pearl','Metallic',
   'Matte/Satin','Candy/Custom','OEM Match','Primer Only','N/A'
 ];
-const JOB_STATUSES = [
+const JOB_STATUSES_DEFAULT = [
   {val:'estimate',label:'Estimate',cls:'pill-estimate'},
   {val:'scheduled',label:'Scheduled',cls:'pill-scheduled'},
   {val:'disassembly',label:'Disassembly',cls:'pill-disassembly'},
@@ -1858,6 +1858,25 @@ const JOB_STATUSES = [
   {val:'ready',label:'Ready for Pickup',cls:'pill-ready'},
   {val:'completed',label:'Completed',cls:'pill-completed'}
 ];
+
+// Feature flags — defaults (can be overridden per-shop in Settings)
+const FEATURE_DEFAULTS = {
+  techAllocBoard: true,      // Tech Allocation pipeline view
+  insuranceTracking: true,   // Insurance fields on jobs
+  techManagement: true,      // Techs tab in sidebar
+  customStatuses: false       // Let shop define custom job statuses
+};
+
+function ff(key){ const f=(APP.settings||{}).features||{}; return f[key]!==undefined?f[key]:FEATURE_DEFAULTS[key]; }
+
+function getActiveJobStatuses(){
+  if(ff('customStatuses') && APP.settings.customStatuses && APP.settings.customStatuses.length>0){
+    return APP.settings.customStatuses;
+  }
+  return JOB_STATUSES_DEFAULT;
+}
+
+var JOB_STATUSES = JOB_STATUSES_DEFAULT;
 const INV_STATUSES = ['draft','sent','paid','overdue'];
 const CLIENT_TYPES = ['Walk-in','Insurance','Fleet','Dealership','Repeat'];
 const BODYSHOP_LINE_ITEMS = [
@@ -1982,12 +2001,21 @@ function openSidebar(){
 function navigate(page, param){
   closeSidebar();
   currentPage=page;
+  JOB_STATUSES = getActiveJobStatuses(); // refresh custom statuses
+  updateSidebarVisibility(); // hide/show feature-flagged tabs
   if(!param) window.location.hash=page;
   document.querySelectorAll('.sidebar-nav a, .bottom-nav a').forEach(a=>{
     a.classList.toggle('active', a.dataset.page===page);
   });
   renderPage(page, param);
   window.scrollTo(0,0);
+}
+
+function updateSidebarVisibility(){
+  // Hide/show Techs tab based on feature flag
+  document.querySelectorAll('.sidebar-nav a[data-page="technicians"]').forEach(a=>{
+    a.style.display = ff('techManagement') ? '' : 'none';
+  });
 }
 
 function renderPage(page, param){
@@ -2068,6 +2096,15 @@ function renderDashboard(){
         <div><h4>Target Completion ${label}!</h4><p>${escHtml(j.jobType)} for ${escHtml(client?client.name:'Unknown')} &mdash; ${fmtDate(j.targetDate)}</p></div>
       </div>`;
     });
+  }
+
+  // Software update banner on dashboard
+  if(window._updateAvailable){
+    html+=`<div class="alert-banner" style="cursor:pointer;border-left:4px solid var(--green);background:#f0fdf4" onclick="navigate('settings')">
+      <div class="alert-icon">🚀</div>
+      <div><h4 style="color:#059669">Software Update Available — v${escHtml(window._updateAvailable.version)}</h4>
+      <p>${escHtml(window._updateAvailable.notes||'New improvements available.')} <strong>Go to Settings</strong> or use <strong>Help → Check for Updates</strong> in the menu bar to install.</p></div>
+    </div>`;
   }
 
   // Stats
@@ -2370,16 +2407,16 @@ function openJobModal(id, preClientId){
         <div class="form-group"><label>Vehicle Color</label><input id="jColor" value="${escHtml(j?j.vehicleColor:'')}"></div>
         <div class="form-group"><label>Technician</label><input id="jTechnician" value="${escHtml(j?j.technician:'')}"></div>
       </div>
-      <div class="form-row">
+      ${ff('insuranceTracking')?`<div class="form-row">
         <div class="form-group">
           <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="jPermit" ${j&&j.insuranceClaim?'checked':''}><span class="toggle-slider"></span></label><span>Insurance Claim</span></div>
         </div>
         <div class="form-group"><label>Claim Number</label><input id="jPermitNum" value="${escHtml(j?j.claimNumber:'')}"></div>
-      </div>
+      </div>`:`<input type="hidden" id="jPermit" value=""><input type="hidden" id="jPermitNum" value="">`}
       <div class="form-group"><label>Notes</label><textarea id="jNotes">${escHtml(j?j.notes:'')}</textarea></div>
       <hr style="margin:20px 0;border:none;border-top:2px solid #e5e7eb">
       <h4 style="color:var(--orange);margin-bottom:12px">&#128679; Repair Status Plan</h4>
-      <div class="form-row">
+      ${ff('insuranceTracking')?`<div class="form-row">
         <div class="form-group"><label>Insurance Company</label><input id="jSupplier" value="${escHtml(pdp.supplier||'')}"></div>
         <div class="form-group"><label>Adjuster Phone</label><input id="jSupplierPhone" value="${escHtml(pdp.supplierPhone||'')}"></div>
       </div>
@@ -2392,7 +2429,7 @@ function openJobModal(id, preClientId){
       <div class="form-row">
         <div class="form-group"><label>Deductible ($)</label><input type="number" id="jTrucks" value="${pdp.numTrucks||''}"></div>
         <div class="form-group"><label>Pour Start Time</label><input type="time" id="jStartTime" value="${escHtml(pdp.pourStartTime||'')}"></div>
-      </div>
+      </div>`:`<input type="hidden" id="jSupplier" value="${escHtml(pdp.supplier||'')}"><input type="hidden" id="jSupplierPhone" value="${escHtml(pdp.supplierPhone||'')}"><input type="hidden" id="jOrderPlaced" value=""><input type="hidden" id="jOrderDate" value=""><input type="hidden" id="jTrucks" value=""><input type="hidden" id="jStartTime" value="">`}
       <div class="form-group"><label>Vehicle Year</label><input id="jWeather" placeholder="Check forecast 48hrs before" value="${escHtml(pdp.weatherCheck||'')}"></div>
       <div class="form-group"><label>Technician List for Repair Status</label><textarea id="jTechnicianList">${escHtml(pdp.technicianList||'')}</textarea></div>
     </div>
@@ -2804,6 +2841,10 @@ function renderInvoiceDetail(id){
 // ============================================================
 function renderSettings(){
   const s=APP.settings||{};
+  const features = s.features || {};
+  function isOn(key){ return features[key]!==undefined ? features[key] : FEATURE_DEFAULTS[key]; }
+  const customSts = s.customStatuses || [];
+
   return `<div class="page-header"><h2>Settings</h2></div>
     <div class="card">
       <h3 style="margin-bottom:16px">Company Information</h3>
@@ -2815,6 +2856,39 @@ function renderSettings(){
       </div>
       <div class="form-group"><label>Address</label><input id="sAddress" value="${escHtml(s.companyAddress||'')}" placeholder="123 Main St, City, State"></div>
       <div class="form-actions"><button class="btn-primary" onclick="saveSettings()">Save Settings</button></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:4px">&#9881; Feature Customization</h3>
+      <p style="font-size:.85rem;color:var(--gray);margin-bottom:20px">Turn features on or off to match your shop's workflow. Changes take effect immediately after saving.</p>
+
+      <div class="toggle-row" style="padding:12px 0;border-bottom:1px solid #f3f4f6">
+        <label class="toggle-switch"><input type="checkbox" id="ffTechAlloc" ${isOn('techAllocBoard')?'checked':''}><span class="toggle-slider"></span></label>
+        <div><strong>Tech Allocation Board</strong><br><span style="font-size:.85rem;color:var(--gray)">Pipeline view organized by technician — In Process / Completed / Gone columns with drag-and-drop assignment</span></div>
+      </div>
+
+      <div class="toggle-row" style="padding:12px 0;border-bottom:1px solid #f3f4f6">
+        <label class="toggle-switch"><input type="checkbox" id="ffInsurance" ${isOn('insuranceTracking')?'checked':''}><span class="toggle-slider"></span></label>
+        <div><strong>Insurance Tracking</strong><br><span style="font-size:.85rem;color:var(--gray)">Insurance claim toggle, claim numbers, insurance company, adjuster info, deductible, and supplement tracking on jobs</span></div>
+      </div>
+
+      <div class="toggle-row" style="padding:12px 0;border-bottom:1px solid #f3f4f6">
+        <label class="toggle-switch"><input type="checkbox" id="ffTechMgmt" ${isOn('techManagement')?'checked':''}><span class="toggle-slider"></span></label>
+        <div><strong>Technician Management</strong><br><span style="font-size:.85rem;color:var(--gray)">Dedicated Techs tab in the sidebar for adding, editing, and tracking technician workloads</span></div>
+      </div>
+
+      <div class="toggle-row" style="padding:12px 0">
+        <label class="toggle-switch"><input type="checkbox" id="ffCustomStatus" ${isOn('customStatuses')?'checked':''} onchange="document.getElementById('customStatusEditor').style.display=this.checked?'block':'none'"><span class="toggle-slider"></span></label>
+        <div><strong>Custom Job Statuses</strong><br><span style="font-size:.85rem;color:var(--gray)">Define your own workflow stages instead of the default (Estimate → Scheduled → Disassembly → Body Work → Paint → ...)</span></div>
+      </div>
+
+      <div id="customStatusEditor" style="display:${isOn('customStatuses')?'block':'none'};margin-top:16px;padding:16px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb">
+        <label style="font-weight:600;margin-bottom:8px;display:block">Custom Statuses</label>
+        <p style="font-size:.82rem;color:var(--gray);margin-bottom:12px">One per line. Format: <code>value|Label</code> (e.g. <code>teardown|Tear Down</code>). First status should be your starting stage, last should be your final stage.</p>
+        <textarea id="sCustomStatuses" rows="8" style="font-family:monospace;font-size:.85rem">${customSts.length > 0 ? customSts.map(s=>s.val+'|'+s.label).join('\\n') : 'estimate|Estimate\\nscheduled|Scheduled\\ndisassembly|Disassembly\\nbodywork|Body Work\\npaint|Paint\\nreassembly|Reassembly\\nqualitycheck|Quality Check\\nready|Ready for Pickup\\ncompleted|Completed'}</textarea>
+      </div>
+
+      <div class="form-actions" style="margin-top:16px"><button class="btn-primary" onclick="saveSettings()">Save Settings</button></div>
     </div>
 
     <div class="card">
@@ -2839,6 +2913,19 @@ function renderSettings(){
         <p style="font-size:.85rem;color:var(--gray)">Server: <strong style="color:${serverAvailable?'var(--green)':'var(--yellow)'}"><span class="status-dot ${serverAvailable?'green':'yellow'}" style="display:inline-block;vertical-align:middle;margin-right:4px"></span>${serverAvailable?'Connected &mdash; auto-sync enabled':'Local storage only'}</strong></p>
         ${serverAvailable?`<button class="btn-sm btn-outline" style="margin-top:8px" onclick="loadServerBackups()">View Server Backups</button>`:''}
         <div id="serverBackupsList"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:16px">Software Updates</h3>
+      <p style="font-size:.85rem;color:var(--gray);margin-bottom:16px">Check if a newer version of the CRM is available. Updates are installed via the <strong>Help → Check for Updates</strong> option in the top menu bar of the application window.</p>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn-primary" onclick="checkForAppUpdate(false)">🔄 Check for Updates</button>
+        <span style="font-size:.85rem;color:var(--gray)">Current version: <strong>v${CRM_CURRENT_VER}</strong></span>
+        ${window._updateAvailable ? '<span style="font-size:.85rem;color:var(--green);font-weight:600">⬆ v'+escHtml(window._updateAvailable.version)+' available — use Help menu to install</span>' : ''}
+      </div>
+      <div style="margin-top:14px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">
+        <p style="font-size:.85rem;color:#166534;margin:0"><strong>💡 Tip:</strong> Press <strong>Alt</strong> to show the menu bar if it\'s hidden, then go to <strong>Help → Check for Updates</strong> to download and install updates.</p>
       </div>
     </div>
 
@@ -2899,14 +2986,39 @@ async function restoreServerBackup(date){
 }
 
 function saveSettings(){
+  // Parse custom statuses if enabled
+  const customStatusEnabled = document.getElementById('ffCustomStatus').checked;
+  let customStatuses = [];
+  if(customStatusEnabled){
+    const raw = document.getElementById('sCustomStatuses').value.trim();
+    customStatuses = raw.split('\n').map(line=>{
+      const parts = line.trim().split('|');
+      if(parts.length>=2){
+        const val = parts[0].trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+        const label = parts[1].trim();
+        if(val && label) return {val, label, cls:'pill-'+val};
+      }
+      return null;
+    }).filter(Boolean);
+  }
+
   APP.settings={
     companyName:document.getElementById('sName').value.trim(),
     companyPhone:document.getElementById('sPhone').value.trim(),
     companyEmail:document.getElementById('sEmail').value.trim(),
     companyAddress:document.getElementById('sAddress').value.trim(),
-    lastBackupReminder:APP.settings?APP.settings.lastBackupReminder:null
+    lastBackupReminder:APP.settings?APP.settings.lastBackupReminder:null,
+    features:{
+      techAllocBoard: document.getElementById('ffTechAlloc').checked,
+      insuranceTracking: document.getElementById('ffInsurance').checked,
+      techManagement: document.getElementById('ffTechMgmt').checked,
+      customStatuses: customStatusEnabled
+    },
+    customStatuses: customStatuses
   };
+  JOB_STATUSES = getActiveJobStatuses();
   saveData(); showToast('Settings saved');
+  navigate('settings'); // re-render to reflect changes
 }
 
 function exportData(){
@@ -3122,14 +3234,17 @@ function getTimeAgo(dateStr){
 // FEATURE 3: PIPELINE / KANBAN BOARD
 // ============================================================
 function renderPipeline(){
-  var pipeView = (window._pipeView || 'tech');
+  var showTechBoard = ff('techAllocBoard');
+  var pipeView = showTechBoard ? (window._pipeView || 'tech') : 'status';
   var h = '<div class="page-header"><h2>Pipeline</h2><div class="page-header-actions"><button class="btn-primary" onclick="openJobModal()">+ Add Job</button></div></div>';
 
-  // Tab switcher
-  h += '<div class="pipe-tabs">';
-  h += '<button class="pipe-tab '+(pipeView==='tech'?'active':'')+'" onclick="window._pipeView=\'tech\';navigate(\'pipeline\')">&#128119; Tech Allocation</button>';
-  h += '<button class="pipe-tab '+(pipeView==='status'?'active':'')+'" onclick="window._pipeView=\'status\';navigate(\'pipeline\')">&#9776; By Status</button>';
-  h += '</div>';
+  // Tab switcher — only show if Tech Allocation is enabled
+  if(showTechBoard){
+    h += '<div class="pipe-tabs">';
+    h += '<button class="pipe-tab '+(pipeView==='tech'?'active':'')+'" onclick="window._pipeView=\'tech\';navigate(\'pipeline\')">&#128119; Tech Allocation</button>';
+    h += '<button class="pipe-tab '+(pipeView==='status'?'active':'')+'" onclick="window._pipeView=\'status\';navigate(\'pipeline\')">&#9776; By Status</button>';
+    h += '</div>';
+  }
 
   if (pipeView === 'tech') {
     h += renderTechAllocationBoard();
@@ -3909,7 +4024,61 @@ async function init(){
   });
 }
 
-checkServer().then(() => { init(); setTimeout(checkBackupReminder, 1200); });
+// ── Software Update Check (from HTML) ──
+const UPDATE_CHECK_URL = 'https://andrewhess10-collab.github.io/CRM-Updates/version.json';
+const CRM_UPDATE_KEY = 'bodyshop';
+const CRM_CURRENT_VER = '1.3.0'; // bump this when you ship a new HTML
+
+window._updateAvailable = null;
+
+async function checkForAppUpdate(silent){
+  try {
+    const res = await fetch(UPDATE_CHECK_URL, {cache:'no-store'});
+    if(!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    const info = data[CRM_UPDATE_KEY];
+    if(!info) { if(!silent) showToast('No update info found'); return; }
+    if(info.version !== CRM_CURRENT_VER){
+      window._updateAvailable = info;
+      // Show dashboard banner if on dashboard
+      showUpdateBanner(info);
+      if(!silent) showToast('Update available: v'+info.version);
+    } else {
+      window._updateAvailable = null;
+      hideUpdateBanner();
+      if(!silent) showToast('You are on the latest version (v'+CRM_CURRENT_VER+')');
+    }
+  } catch(e){
+    if(!silent) showToast('Could not check for updates','error');
+  }
+}
+
+function showUpdateBanner(info){
+  let banner = document.getElementById('updateBanner');
+  if(!banner){
+    banner = document.createElement('div');
+    banner.id = 'updateBanner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,#059669,#10b981);color:white;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;box-shadow:0 4px 16px rgba(0,0,0,.2);';
+    document.body.prepend(banner);
+  }
+  banner.style.display = 'flex';
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;font-weight:500;">
+      <span style="font-size:1.3rem;">🚀</span>
+      <span><strong>Update Available!</strong> v${escHtml(info.version)} — ${escHtml(info.notes||'New improvements')}</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span style="font-size:.85rem;opacity:.9">Use <strong>Help → Check for Updates</strong> in the menu bar to install</span>
+      <button onclick="document.getElementById('updateBanner').style.display='none'" style="background:rgba(255,255,255,.2);color:white;padding:6px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;cursor:pointer;font-size:.85rem;">✕ Dismiss</button>
+    </div>`;
+}
+
+function hideUpdateBanner(){
+  const b = document.getElementById('updateBanner');
+  if(b) b.style.display = 'none';
+}
+
+checkServer().then(() => { init(); setTimeout(checkBackupReminder, 1200); setTimeout(()=>checkForAppUpdate(true), 3000); });
 </script>
 
 
