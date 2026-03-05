@@ -1,7 +1,7 @@
 {
   "bodyshop": {
-    "version": "1.3.0",
-    "notes": "New: Feature customization in Settings — toggle Tech Allocation, Insurance Tracking, Tech Management, and Custom Job Statuses per shop.",
+    "version": "1.1.0",
+    "notes": "New: Tech allocation pipeline board matching shop workflow. Drag-and-drop vehicle assignment.",
     "file": "bodyshop/BodyShopCRM.html"
   }
 }
